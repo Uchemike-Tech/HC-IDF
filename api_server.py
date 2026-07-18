@@ -4,10 +4,12 @@ Run: python api_server.py
 Then open: http://localhost:8000
 """
 import json, os, time, threading, numpy as np, pandas as pd, joblib
+from datetime import datetime
 from pathlib import Path
 from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from src.network.capture import LiveCapture
 
 app = FastAPI(title="HC-IDF API", version="2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -43,6 +45,15 @@ def load_cache():
     print(f"[API] Ready — {DATA_CACHE.get('total_rows', 0):,} rows, {DATA_CACHE.get('total_features', 0)} features")
 
 load_cache()
+
+# ── Live capture instance ──
+capture = LiveCapture()
+SCAPY_AVAIL = True
+try:
+    from scapy.all import conf
+    conf.verb = 0
+except ImportError:
+    SCAPY_AVAIL = False
 
 # ── Serve the frontend HTML ──
 @app.get("/")
@@ -133,21 +144,194 @@ async def get_detection_models():
         ],
     }
 
+# ── Feature name → plain English description ──
+FEATURE_DESCRIPTIONS = {
+    "Destination Port": "The port number the traffic is heading to — unusual ports can indicate malicious activity.",
+    "Flow Duration": "How long the network flow lasted — very short or very long flows can be suspicious.",
+    "Total Fwd Packets": "Number of packets sent forward in the flow — unusual volumes may indicate scanning.",
+    "Total Backward Packets": "Number of packets sent in reply — asymmetric volumes can signal attacks.",
+    "Packet Length Mean": "Average size of packets in the flow — attacks often use unusually small or large packets.",
+    "Packet Length Variance": "How much packet sizes vary — attacks may have unusual consistency or variation.",
+    "Flow IAT Mean": "Average time between packets in the flow — bots often send at mechanical intervals.",
+    "Flow IAT Std": "Variation in inter-arrival times — human traffic is irregular, bot traffic is uniform.",
+    "Fwd IAT Total": "Total time between forward packets — rapid bursts can indicate scanning.",
+    "Fwd IAT Mean": "Average gap between forward packets — used to detect automated traffic patterns.",
+    "Init_Win_bytes_forward": "Initial TCP window size sent by the client — specific OS values can identify attacker tools.",
+    "Init_Win_bytes_backward": "Initial TCP window size sent by the server — used alongside forward window for OS fingerprinting.",
+    "Fwd Header Length": "Size of the forward packet headers — abnormal headers can indicate crafted attack packets.",
+    "Fwd Header Length.1": "Alternate measurement of forward header length — provides redundancy for detection.",
+    "Bwd Packet Length Min": "Smallest backward packet — attacks often have unusually small replies.",
+    "Bwd Packet Length Max": "Largest backward packet — data exfiltration may have large responses.",
+    "Bwd Packet Length Mean": "Average backward packet size — asymmetry with forward size is suspicious.",
+    "Bwd Packet Length Std": "Variation in backward packet sizes — can reveal attack tool signatures.",
+    "Min Packet Length": "Smallest packet observed in the flow — tiny packets may be reconnaissance probes.",
+    "Max Packet Length": "Largest packet observed — oversize packets can indicate data theft.",
+    "Average Packet Size": "Overall average packet size in the flow — key differentiator between normal and attack traffic.",
+    "Subflow Fwd Bytes": "Bytes sent in forward subflows — used to detect data exfiltration patterns.",
+    "Subflow Bwd Bytes": "Bytes received in backward subflows — complements forward analysis.",
+    "Subflow Fwd Packets": "Number of forward subflow packets — identifies connection patterns.",
+    "Subflow Bwd Packets": "Number of backward subflow packets — used for traffic symmetry analysis.",
+    "act_data_pkt_fwd": "Count of forward packets with payload — empty packets are common in attacks.",
+    "FIN Flag Count": "Number of TCP FIN flags — abnormal termination patterns indicate scanning.",
+    "SYN Flag Count": "Number of TCP SYN flags — excessive SYNs are a hallmark of port scanning.",
+    "PSH Flag Count": "Number of TCP PSH flags — urgent push flags can indicate attack commands.",
+    "ACK Flag Count": "Number of TCP ACK flags — used to detect ACK-based scan techniques.",
+    "URG Flag Count": "Number of TCP URG flags — urgent pointers are rarely legitimate.",
+    "CWE Flag Count": "Number of TCP CWE flags — congestion warnings may be exploited.",
+    "ECE Flag Count": "Number of TCP ECE flags — used in ECN-based attacks.",
+    "RST Flag Count": "Number of TCP RST flags — resets can indicate failed connection attempts.",
+    "down/Up Ratio": "Ratio of downstream to upstream traffic — extreme ratios suggest data theft.",
+    "Fwd Packets/s": "Rate of forward packets — high rates indicate scanning or DoS.",
+    "Bwd Packets/s": "Rate of backward packets — used to detect reflection attacks.",
+    "Fwd Segment Size Min": "Smallest forward TCP segment — tiny segments are common in attacks.",
+    "Fwd Segment Size Avg": "Average forward segment size — helps distinguish normal from malicious flows.",
+    "Idle Mean": "Average idle time between flows — bots often reconnect at precise intervals.",
+    "Idle Std": "Variation in idle periods — attackers may have predictable timing patterns.",
+    "Idle Max": "Maximum idle time — long silences followed by activity can be command & control.",
+    "Idle Min": "Minimum idle time — rapid reconnections suggest automated activity.",
+    "protocol": "The network protocol used (TCP, UDP, etc.) — some protocols are more attack-prone.",
+    "sload": "Source bytes per second — burst rates can indicate DoS or scanning.",
+    "dload": "Destination bytes per second — reflects response traffic volume.",
+    "spkts": "Total source packets — overall volume from the origin.",
+    "dpkts": "Total destination packets — overall volume to the target.",
+    "sbytes": "Total source bytes — data volume sent by the origin.",
+    "dbytes": "Total destination bytes — data volume received by the target.",
+    "rate": "Overall packet rate — fundamental traffic intensity metric.",
+    "dinpkt": "Average destination inter-packet arrival — response timing patterns.",
+    "sinpkt": "Average source inter-packet arrival — sending timing consistency.",
+    "sjit": "Source jitter — variation in sending intervals.",
+    "djit": "Destination jitter — variation in response intervals.",
+    "tcprtt": "TCP round-trip time — network latency between endpoints.",
+    "synack": "Time between SYN and SYN-ACK — server response latency.",
+    "ackdat": "Time between SYN-ACK and ACK — handshake completion time.",
+    "trans_depth": "Depth of transaction — number of data exchanges in the connection.",
+    "response_body_len": "Size of the response body — unusually large responses can indicate data theft.",
+    "ct_srv_src": "Count of connections to the same service from this source — indicates service targeting.",
+    "ct_state_ttl": "Count of connections with same state/TTL — consistent TTLs help fingerprint OS.",
+    "ct_dst_ltm": "Count of connections to this destination in last minute — sudden spikes indicate attacks.",
+    "ct_src_ltm": "Count of connections from this source in last minute — rapid connections signal scanning.",
+    "ct_src_dport_ltm": "Count of connections to same dest port from this source — port targeting detection.",
+    "ct_dst_sport_ltm": "Count of connections to this destination from same source port — detects asymmetric flows.",
+    "ct_dst_src_ltm": "Count of connections between these two hosts in last minute — baseline behavior profiling.",
+    "is_sm_ips_ports": "Whether source and destination are on the same subnet — local vs external traffic flag.",
+    "service": "The type of service requested (HTTP, DNS, FTP, etc.) — some services are more targeted.",
+    "state": "Connection state (established, reset, etc.) — unusual states indicate attacks.",
+    "sttl": "Source-to-destination TTL — helps identify spoofed or proxied traffic.",
+    "dttl": "Destination-to-source TTL — asymmetric TTL suggests different paths or MITM.",
+    "swin": "Source TCP window size — OS fingerprinting and anomaly detection.",
+    "dwin": "Destination TCP window size — complements source window analysis.",
+    "stepb": "Source TCP base sequence number — sequence prediction attacks.",
+    "dtcpb": "Destination TCP base sequence number — used for sequence number analysis.",
+    "smeansz": "Source mean packet size — traffic profiling baseline.",
+    "dmeansz": "Destination mean packet size — response traffic profiling.",
+    "proto": "Transport protocol identifier — identifies TCP, UDP, ICMP traffic type.",
+}
+
 # ── XAI data ──
 @app.get("/api/xai")
 async def get_xai():
+    td = DATA_CACHE.get("test_data")
+    ex = td.get("explanations") if td else None
+    feature_names = td.get("feature_names") if td else []
     return {
-        "limeFeatures": [
-            "Destination Port <= -0.43", "Min Packet Length <= -0.64",
-            "proto <= -0.28", "Bwd Packet Length Min <= -0.57",
-            "Packet Length Mean <= -0.57",
-        ],
         "shapAvailable": bool((PROCESSED / "shap_summary.png").exists()),
         "topFeatures": [
             {"feature": "Init_Win_bytes_backward", "importance": 0.0431},
             {"feature": "Destination Port", "importance": 0.0422},
             {"feature": "Init_Win_bytes_forward", "importance": 0.0406},
+            {"feature": "Average Packet Size", "importance": 0.0347},
+            {"feature": "Fwd Header Length.1", "importance": 0.0342},
+            {"feature": "Min Packet Length", "importance": 0.0307},
+            {"feature": "Flow Duration", "importance": 0.0271},
+            {"feature": "Fwd Header Length", "importance": 0.0258},
+            {"feature": "Flow IAT Mean", "importance": 0.0241},
+            {"feature": "Fwd IAT Total", "importance": 0.0238},
         ],
+        "featureDescriptions": {
+            feat: FEATURE_DESCRIPTIONS.get(feat, "Network flow characteristic used by the ML model.")
+            for feat in feature_names[:30]
+        },
+        "explanationsAvailable": ex is not None and len(ex) > 0,
+    }
+
+@app.get("/api/xai/per-alert/{alert_idx}")
+async def get_per_alert_xai(alert_idx: int):
+    td = DATA_CACHE.get("test_data")
+    if not td:
+        return {"error": "Test data not loaded"}
+    ex = td.get("explanations", [])
+    if not ex or alert_idx < 0 or alert_idx >= len(ex):
+        return {"error": f"Explanation for alert {alert_idx} not found"}
+
+    sample = ex[alert_idx]
+    features = sample["features"]
+
+    positive = [f for f in features if f["importance"] >= 0]
+    negative = [f for f in features if f["importance"] < 0]
+    positive.sort(key=lambda x: x["importance"], reverse=True)
+    negative.sort(key=lambda x: x["importance"])
+
+    def make_plain_english(feat_name, feat_value, importance, is_attack):
+        desc = FEATURE_DESCRIPTIONS.get(feat_name, "This network characteristic")
+        direction = (
+            "increased the attack score" if importance > 0 else
+            "decreased the attack score (pushed toward benign)"
+        )
+        if abs(feat_value) < 0.1:
+            val_desc = "was near-normal"
+        elif feat_value < -0.5:
+            val_desc = "was unusually low"
+        elif feat_value < -0.2:
+            val_desc = "was lower than normal"
+        elif feat_value > 0.5:
+            val_desc = "was unusually high"
+        elif feat_value > 0.2:
+            val_desc = "was higher than normal"
+        else:
+            val_desc = "was within normal range"
+        return {
+            "feature": feat_name,
+            "value": round(float(feat_value), 3),
+            "importance": round(float(importance), 4),
+            "description": desc,
+            "direction": direction,
+            "valueSummary": val_desc,
+            "plainEnglish": f"{feat_name} ({val_desc}, importance: {abs(importance):.4f})"
+        }
+
+    top_features = positive[:5] + negative[:3]
+    explanations = [make_plain_english(f["feature"], f["value"], f["importance"], sample["true_label"]) for f in top_features]
+
+    summary_parts = []
+    for f in top_features:
+        val_desc = (
+            "unusually low" if f["value"] < -0.5 else
+            "lower than normal" if f["value"] < -0.2 else
+            "unusually high" if f["value"] > 0.5 else
+            "higher than normal" if f["value"] > 0.2 else
+            "within normal range"
+        )
+        dir_text = "pushed toward **attack**" if f["importance"] > 0 else "pushed toward **benign**"
+        summary_parts.append(f"- **{f['feature']}** was {val_desc} ({f['value']:.2f}), which {dir_text} (importance: {abs(f['importance']):.4f})")
+
+    label_text = "Attack" if sample["true_label"] == 1 else "Benign"
+    pred_text = "Attack" if sample["predicted"] == 1 else "Benign"
+    correct = sample["true_label"] == sample["predicted"]
+
+    return {
+        "sampleId": sample["sample_id"],
+        "trueLabel": label_text,
+        "predicted": pred_text,
+        "probability": round(float(sample["probability"]), 4),
+        "correct": correct,
+        "summary": f"The model classified this as **{pred_text}** (confidence: {sample['probability']:.2%}). The model was **{'correct' if correct else 'wrong'}** (true label: {label_text}).",
+        "plainEnglishDetails": summary_parts,
+        "features": explanations,
+        "allFeatures": [{
+            "feature": f["feature"],
+            "value": round(float(f["value"]), 3),
+            "importance": round(float(f["importance"]), 4),
+        } for f in features],
     }
 
 # ── Test session data ──
@@ -203,10 +387,85 @@ async def get_statistical_tests():
         },
     }
 
-# ── Live capture status ──
+# ── Live capture endpoints ──
 @app.get("/api/capture/status")
 async def capture_status():
-    return {"running": False, "message": "Enable via Live Capture page (requires Npcap + Scapy)"}
+    s = capture.summary() if capture.running else {}
+    return {
+        "running": capture.running,
+        "message": "Capture active" if capture.running else "Click Start to begin capture (requires Npcap + Scapy)",
+        "total": s.get("total", 0),
+        "rate": s.get("rate", 0),
+        "tcp": s.get("tcp", 0),
+        "udp": s.get("udp", 0),
+        "arp": s.get("arp", 0),
+        "elapsed": s.get("elapsed", 0),
+        "alert_count": s.get("alert_count", 0),
+        "recent_alerts": s.get("recent_alerts", []),
+    }
+
+@app.post("/api/capture/start")
+async def capture_start(interface: str = Query(None)):
+    if capture.running:
+        return {"status": "already_running"}
+    if not SCAPY_AVAIL:
+        return {"status": "error", "message": "Scapy not installed. Run: pip install scapy"}
+    if interface:
+        capture.interface = interface
+    ok = capture.start()
+    return {"status": "started" if ok else "error"}
+
+@app.post("/api/capture/stop")
+async def capture_stop():
+    if not capture.running:
+        return {"status": "not_running"}
+    capture.stop()
+    return {"status": "stopped"}
+
+@app.get("/api/capture/alerts")
+async def capture_alerts():
+    if not capture.running:
+        return {"alerts": []}
+    alerts = capture.alerts[-50:]
+    return {"alerts": alerts}
+
+@app.get("/api/capture/stats")
+async def capture_stats():
+    s = capture.summary() if capture.running else {}
+    return {
+        "running": capture.running,
+        "total": s.get("total", 0),
+        "elapsed": s.get("elapsed", 0),
+        "rate": s.get("rate", 0),
+        "tcp": s.get("tcp", 0),
+        "udp": s.get("udp", 0),
+        "arp": s.get("arp", 0),
+        "alert_count": s.get("alert_count", 0),
+        "top_src_ips": [{"ip": ip, "count": c} for ip, c in s.get("top_src_ips", [])],
+        "top_ports": [{"port": p, "count": c} for p, c in s.get("top_ports", [])],
+    }
+
+FEEDBACK_LOG = Path("data/feedback_log.csv")
+
+@app.post("/api/feedback/submit")
+async def submit_feedback(data: dict):
+    import csv
+    filepath = FEEDBACK_LOG
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    exists = filepath.exists()
+    with open(filepath, "a", newline="") as f:
+        writer = csv.writer(f)
+        if not exists:
+            writer.writerow(["timestamp", "alert_idx", "true_label", "predicted", "user_decision", "correct"])
+        writer.writerow([
+            datetime.now().isoformat(),
+            data.get("alertIdx", ""),
+            data.get("trueLabel", ""),
+            data.get("predicted", ""),
+            data.get("decision", ""),
+            data.get("correct", ""),
+        ])
+    return {"status": "ok", "message": "Feedback recorded"}
 
 # ── SHAP image ──
 @app.get("/api/shap-image")
