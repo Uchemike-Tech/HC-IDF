@@ -1,0 +1,38 @@
+# ── HC-IDF: Human-Centric Intrusion Detection Framework ──
+# Core data & ML
+numpy>=1.24.0
+pandas>=2.0.0
+scikit-learn>=1.3.0
+pyarrow>=14.0.0
+joblib>=1.3.0
+
+# Imbalanced learning
+imbalanced-learn>=0.12.0
+
+# Explainable AI
+shap>=0.42.0
+lime>=0.2.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Backend & dashboard
+streamlit>=1.28.0
+fastapi>=0.109.0
+uvicorn>=0.27.0
+
+# Config
+pyyaml>=6.0
+
+# Statistics
+scipy>=1.11.0
+
+# Testing
+pytest>=7.4.0
+
+# Optional: Deep learning (requires Python <=3.12 or Colab)
+# tensorflow>=2.13.0
+
+# Optional: Live packet capture (requires Npcap on Windows)
+# scapy>=2.5.0

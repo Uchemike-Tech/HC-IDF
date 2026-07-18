@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+
+# Environments
+.venv/
+env/
+venv/
+
+# Data (download separately)
+data/raw/
+data/external/
+
+# Jupyter notebooks (scratch)
+notebooks/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

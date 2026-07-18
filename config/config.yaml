@@ -1,0 +1,96 @@
+data:
+  raw_path: "data/raw/"
+  processed_path: "data/processed/"
+  datasets:
+    cicids2017:
+      path: "data/external/CICIDS2017/"
+      files:
+        - "Friday-WorkingHours-Morning.pcap_ISCX.csv"
+        - "Tuesday-WorkingHours.pcap_ISCX.csv"
+        - "Wednesday-workingHours.pcap_ISCX.csv"
+    unsw_nb15:
+      path: "data/external/UNSW-NB15/"
+  test_split: 0.15
+  val_split: 0.15
+  random_state: 42
+
+preprocessing:
+  normalize: true
+  normalization_method: "zscore"
+  handle_imbalance: true
+  sampling_strategy: "smote"
+  feature_selection:
+    enabled: true
+    method: "mutual_info"
+    k_best: 20
+
+detection:
+  supervised:
+    random_forest:
+      n_estimators: 100
+      max_depth: 20
+    svm:
+      kernel: "rbf"
+      C: 1.0
+  deep_learning:
+    lstm:
+      units: [64, 32]
+      dropout: 0.3
+      epochs: 50
+      batch_size: 64
+    cnn_lstm:
+      filters: 64
+      kernel_size: 3
+      lstm_units: 32
+      epochs: 50
+      batch_size: 64
+  anomaly:
+    isolation_forest:
+      n_estimators: 100
+      contamination: 0.1
+    autoencoder:
+      encoding_dim: 16
+      epochs: 30
+      batch_size: 32
+
+mitm:
+  arp:
+    cache_timeout: 300
+    alert_threshold: 3
+  dns:
+    max_response_deviation: 50
+  session:
+    rtt_std_threshold: 2.5
+
+xai:
+  shap:
+    enabled: true
+    max_display: 10
+  lime:
+    enabled: true
+    num_features: 5
+    num_samples: 1000
+
+feedback:
+  retraining_interval: 100
+  confidence_threshold: 0.7
+  max_false_positive_buffer: 500
+
+evaluation:
+  metrics:
+    - "accuracy"
+    - "precision"
+    - "recall"
+    - "f1_score"
+    - "auc_roc"
+    - "false_positive_rate"
+    - "false_negative_rate"
+    - "detection_latency_ms"
+  cross_validation:
+    folds: 5
+    stratified: true
+  statistical_tests:
+    significance_level: 0.05
+    tests:
+      - "mcnemar"
+      - "paired_ttest"

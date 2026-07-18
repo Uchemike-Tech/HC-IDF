@@ -1,0 +1,81 @@
+{
+  "title": "HC-IDF Live Monitoring",
+  "uid": "hcidf-overview",
+  "schemaVersion": 38,
+  "version": 1,
+  "timezone": "browser",
+  "panels": [
+    {
+      "title": "Detection Rate",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4},
+      "targets": [{"target": "detection_rate"}],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"steps": [{"value": -1e9, "color": "red"}, {"value": 0.95, "color": "yellow"}, {"value": 0.99, "color": "green"}]},
+          "unit": "percentunit"
+        }
+      }
+    },
+    {
+      "title": "Active Alerts",
+      "type": "stat",
+      "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4},
+      "targets": [{"target": "active_alerts"}],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"steps": [{"value": -1e9, "color": "green"}, {"value": 10, "color": "yellow"}, {"value": 50, "color": "red"}]}
+        }
+      }
+    },
+    {
+      "title": "MITM Alerts",
+      "type": "stat",
+      "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4},
+      "targets": [{"target": "mitm_alerts"}],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"steps": [{"value": -1e9, "color": "green"}, {"value": 3, "color": "yellow"}, {"value": 10, "color": "red"}]}
+        }
+      }
+    },
+    {
+      "title": "Packet Rate (pps)",
+      "type": "stat",
+      "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4},
+      "targets": [{"target": "packet_rate"}]
+    },
+    {
+      "title": "Model Accuracy Over Time",
+      "type": "graph",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {"target": "accuracy_rf", "name": "RF"},
+        {"target": "accuracy_lstm", "name": "LSTM"},
+        {"target": "accuracy_cnn", "name": "CNN-LSTM"}
+      ]
+    },
+    {
+      "title": "Alert Distribution by Protocol",
+      "type": "piechart",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "targets": [{"target": "protocol_distribution"}]
+    },
+    {
+      "title": "Top Source IPs",
+      "type": "table",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 6},
+      "targets": [{"target": "top_ips"}]
+    },
+    {
+      "title": "Recent Alerts",
+      "type": "table",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 6},
+      "targets": [{"target": "recent_alerts"}]
+    }
+  ],
+  "refresh": "5s"
+}

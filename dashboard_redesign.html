@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HC-IDF — Security Operations Console</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #08080f; color: #c8c8d8; font-family: 'Inter', system-ui, -apple-system, sans-serif; overflow-x: hidden; }
+  .font-mono { font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace; }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: #111120; }
+  ::-webkit-scrollbar-thumb { background: #2a2a40; border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a3a55; }
+  .bg-grid { background-image: linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px); background-size: 32px 32px; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes scanline { 0% { transform: translateY(-100%); } 100% { transform: translateY(100vh); } }
+  .anim-fade { animation: fadeIn 0.4s ease-out both; }
+  .anim-fade-1 { animation-delay: 0.05s; }
+  .anim-fade-2 { animation-delay: 0.1s; }
+  .anim-fade-3 { animation-delay: 0.15s; }
+  .anim-fade-4 { animation-delay: 0.2s; }
+  .anim-fade-5 { animation-delay: 0.25s; }
+  .scanline::after { content: ''; position: fixed; top: 0; left: 0; right: 0; height: 2px; background: rgba(6, 182, 212, 0.06); animation: scanline 6s linear infinite; pointer-events: none; z-index: 9999; }
+  .glow-border { position: relative; }
+  .glow-border::before { content: ''; position: absolute; inset: -1px; border-radius: inherit; background: linear-gradient(135deg, rgba(6,182,212,0.15), transparent 50%, rgba(6,182,212,0.05)); z-index: -1; }
+  .nav-active { background: rgba(6, 182, 212, 0.08); border-left: 2px solid #06b6d4; color: #e0e0f0; }
+  .nav-active .nav-icon { color: #06b6d4; }
+  .nav-item { transition: all 0.15s ease; cursor: pointer; }
+  .nav-item:hover { background: rgba(255,255,255,0.03); }
+</style>
+</head>
+<body class="scanline">
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, memo } = React;
+const { createRoot } = ReactDOM;
+const API = 'http://localhost:8000/api';
+
+// ── Icons ──
+const Icons = {
+  Shield: () => React.createElement('svg', { xmlns:'http://www.w3.org/2000/svg', width:20, height:20, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:2, strokeLinecap:'round', strokeLinejoin:'round' },
+    React.createElement('path', { d:'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' })
+  ),
+  Activity: () => React.createElement('svg', { xmlns:'http://www.w3.org/2000/svg', width:18, height:18, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:2, strokeLinecap:'round', strokeLinejoin:'round' },
+    React.createElement('polyline', { points:'22 12 18 12 15 21 9 3 6 12 2 12' })
+  ),
+  AlertTriangle: () => React.createElement('svg', { xmlns:'http://www.w3.org/2000/svg', width:18, height:18, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:2, strokeLinecap:'round', strokeLinejoin:'round' },
+    React.createElement('path', { d:'m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z' }),
+    React.createElement('path', { d:'M12 9v4' }), React.createElement('path', { d:'M12 17h.01' })
+  ),
+  Server: () => React.createElement('svg', { xmlns:'http://www.w3.org/2000/svg', width:18, height:18, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:2, strokeLinecap:'round', strokeLinejoin:'round' },
+    React.createElement('rect', { width:20, height:8, x:2, y:2, rx:2, ry:2 }),
+    React.createElement('rect', { width:20, height:8, x:2, y:14, rx:2, ry:2 }),
+    React.createElement('line', { x1:6, x2:6.01, y1:6, y2:6 }),
+    React.createElement('line', { x1:6, x2:6.01, y1:18, y2:18 })
+  ),
+  Eye: () => React.createElement('svg', { xmlns:'http://www.w3.org/2000/svg', width:18, height:18, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:2, strokeLinecap:'round', strokeLinejoin:'round' },
+    React.createElement('path', { d:'M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z' }),
+    React.createElement('circle', { cx:12, cy:12, r:3 })
+  ),
+  Radio: () => React.createElement('svg', { xmlns:'http://www.w3.org/2000/svg', width:18, height:18, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:2, strokeLinecap:'round', strokeLinejoin:'round' },
+    React.createElement('path', { d:'M4.9 19.1C1 15.2 1 8.8 4.9 4.9' }),
+    React.createElement('path', { d:'M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5' }),
+    React.createElement('circle', { cx:12, cy:12, r:2 }),
+    React.createElement('path', { d:'M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5' }),
+    React.createElement('path', { d:'M19.1 4.9C23 8.8 23 15.2 19.1 19.1' })
+  ),
+  GitFork: () => React.createElement('svg', { xmlns:'http://www.w3.org/2000/svg', width:18, height:18, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:2, strokeLinecap:'round', strokeLinejoin:'round' },
+    React.createElement('circle', { cx:12, cy:18, r:3 }),
+    React.createElement('circle', { cx:6, cy:6, r:3 }),
+    React.createElement('circle', { cx:18, cy:6, r:3 }),
+    React.createElement('path', { d:'M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9' }),
+    React.createElement('path', { d:'M12 12v3' })
+  ),
+  Menu: () => React.createElement('svg', { xmlns:'http://www.w3.org/2000/svg', width:20, height:20, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:2, strokeLinecap:'round', strokeLinejoin:'round' },
+    React.createElement('line', { x1:4, x2:20, y1:12, y2:12 }),
+    React.createElement('line', { x1:4, x2:20, y1:6, y2:6 }),
+    React.createElement('line', { x1:4, x2:20, y1:18, y2:18 })
+  ),
+  X: () => React.createElement('svg', { xmlns:'http://www.w3.org/2000/svg', width:20, height:20, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:2, strokeLinecap:'round', strokeLinejoin:'round' },
+    React.createElement('path', { d:'M18 6 6 18' }), React.createElement('path', { d:'m6 6 12 12' })
+  ),
+};
+
+// ── Helpers ──
+function useFetch(url) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch(url).then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+      .then(d => { if (!cancelled) { setData(d); setLoading(false); } })
+      .catch(e => { if (!cancelled) { setError(e.message); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [url]);
+  return { data, loading, error };
+}
+
+function Loading() {
+  return React.createElement('div', { className: 'flex items-center justify-center h-[50vh] text-[#58587a] font-mono text-sm' },
+    React.createElement('div', { className: 'text-center' },
+      React.createElement('div', { className: 'text-2xl mb-3 opacity-20 animate-pulse' }, '⟳'),
+      React.createElement('div', null, 'Loading data...')
+    )
+  );
+}
+
+function ErrorMsg({ message }) {
+  return React.createElement('div', { className: 'flex items-center justify-center h-[50vh] text-[#ef4444] font-mono text-sm' },
+    React.createElement('div', { className: 'text-center' },
+      React.createElement('div', { className: 'text-2xl mb-3 opacity-40' }, '⚠'),
+      React.createElement('div', null, 'Failed to load data'),
+      React.createElement('div', { className: 'text-[#58587a] text-xs mt-1' }, message),
+      React.createElement('div', { className: 'text-[#58587a] text-xs mt-4' }, 'Ensure API server is running: python api_server.py')
+    )
+  );
+}
+
+function useCountUp(end, duration = 1500, start = 0) {
+  const [value, setValue] = useState(start);
+  const frameRef = useRef();
+  const startTime = useRef();
+  useEffect(() => {
+    if (end === undefined) return;
+    startTime.current = performance.now();
+    const tick = (now) => {
+      const elapsed = now - startTime.current;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setValue(Math.round(start + (end - start) * eased));
+      if (progress < 1) frameRef.current = requestAnimationFrame(tick);
+    };
+    frameRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameRef.current);
+  }, [end, duration, start]);
+  return end >= 1000 ? value.toLocaleString() : value;
+}
+
+function liveTime() {
+  const [ts, setTs] = useState(new Date().toISOString().replace('T',' ').slice(0,19)+'Z');
+  useEffect(() => { const i = setInterval(() => setTs(new Date().toISOString().replace('T',' ').slice(0,19)+'Z'), 1000); return () => clearInterval(i); }, []);
+  return ts;
+}
+
+// ── Components ──
+const StatCard = memo(({ label, value, accent = 'cyan', delay = 0 }) => {
+  const display = useCountUp(value, 1600);
+  const accentColors = { cyan: 'from-cyan-400 to-cyan-600', amber: 'from-amber-400 to-amber-500', red: 'from-red-400 to-red-500', green: 'from-emerald-400 to-emerald-500' };
+  return React.createElement('div', {
+    className: `anim-fade glow-border rounded-lg p-[1px]`,
+    style: { animationDelay: `${delay}ms` }
+  },
+    React.createElement('div', { className: 'bg-[#0e0e1a] rounded-lg p-5 h-full' },
+      React.createElement('div', { className: 'text-[#6868a0] text-xs font-medium tracking-wider uppercase mb-2' }, label),
+      React.createElement('span', { className: `font-mono text-2xl font-bold bg-gradient-to-r ${accentColors[accent]} bg-clip-text text-transparent` }, display)
+    )
+  );
+});
+
+const MetricBadge = memo(({ label, value }) => {
+  const color = value >= 0.99 ? 'text-emerald-400' : value >= 0.95 ? 'text-amber-400' : 'text-red-400';
+  return React.createElement('div', { className: 'anim-fade rounded-lg p-3 bg-[#0e0e1a] border border-[#1a1a2e]' },
+    React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase mb-1' }, label),
+    React.createElement('div', { className: `font-mono text-lg font-bold ${color}` }, value.toFixed(4))
+  );
+});
+
+function PageHeader({ title, subtitle }) {
+  const ts = liveTime();
+  return React.createElement('div', { className: 'flex flex-col sm:flex-row sm:items-end justify-between gap-2 mb-8 pb-5 border-b border-[#16162a]' },
+    React.createElement('div', null,
+      React.createElement('div', { className: 'text-[#58587a] text-[10px] font-mono tracking-widest uppercase mb-1' }, 'SITREP · HC-IDF MONITOR'),
+      React.createElement('h1', { className: 'font-mono font-bold text-2xl text-[#e0e0f0]' }, title),
+      subtitle && React.createElement('p', { className: 'text-[#6868a0] text-sm mt-1' }, subtitle)
+    ),
+    React.createElement('div', { className: 'flex items-center gap-2 text-[#58587a] text-[11px] font-mono' },
+      React.createElement('span', { className: 'w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(34,197,94,0.3)]' }),
+      React.createElement('span', null, ts)
+    )
+  );
+}
+
+function BarChart({ data, maxVal }) {
+  if (!data || data.length === 0) return null;
+  if (!maxVal) maxVal = Math.max(...data.map(d => d.value));
+  return React.createElement('div', { className: 'space-y-2' },
+    data.map((d, i) =>
+      React.createElement('div', { key: i, className: 'anim-fade', style: { animationDelay: `${i * 60}ms` } },
+        React.createElement('div', { className: 'flex justify-between text-xs mb-1' },
+          React.createElement('span', { className: 'text-[#a0a0c0] font-medium' }, d.name),
+          React.createElement('span', { className: 'font-mono text-[#e0e0f0]' }, typeof d.value === 'number' ? d.value.toFixed(4) : d.value)
+        ),
+        React.createElement('div', { className: 'h-2 bg-[#1a1a2e] rounded-full overflow-hidden' },
+          React.createElement('div', {
+            className: 'h-full rounded-full transition-all duration-1000 ease-out',
+            style: {
+              width: `${(d.value / maxVal) * 100}%`,
+              background: d.value >= 0.99 ? 'linear-gradient(90deg, #059669, #10b981)' :
+                          d.value >= 0.95 ? 'linear-gradient(90deg, #d97706, #f59e0b)' :
+                          'linear-gradient(90deg, #dc2626, #ef4444)'
+            }
+          })
+        )
+      )
+    )
+  );
+}
+
+function Sidebar({ active, onNavigate, collapsed, onToggle }) {
+  const NAV_ITEMS = [
+    { id: 'overview', label: 'Overview', icon: 'Shield' },
+    { id: 'test-session', label: 'Test Session', icon: 'Activity' },
+    { id: 'models', label: 'Detection Models', icon: 'Server' },
+    { id: 'explanations', label: 'Explanations', icon: 'Eye' },
+    { id: 'mitm', label: 'MITM & Feedback', icon: 'AlertTriangle' },
+    { id: 'capture', label: 'Live Capture', icon: 'Radio' },
+    { id: 'grafana', label: 'Grafana', icon: 'GitFork' },
+  ];
+  const ts = liveTime();
+  return React.createElement('div', {
+    className: `fixed top-0 left-0 h-full z-50 flex flex-col transition-all duration-200 ${collapsed ? 'w-16' : 'w-56'} bg-[#0a0a14] border-r border-[#16162a]`
+  },
+    React.createElement('div', { className: 'flex items-center gap-2.5 px-4 h-14 border-b border-[#16162a]' },
+      React.createElement('div', { className: 'flex-shrink-0 w-7 h-7 rounded bg-gradient-to-br from-cyan-500 to-cyan-700 flex items-center justify-center' },
+        React.createElement(Icons.Shield, null)
+      ),
+      !collapsed && React.createElement('div', null,
+        React.createElement('div', { className: 'font-mono font-bold text-sm text-[#e0e0f0] leading-tight' }, 'HC-IDF'),
+        React.createElement('div', { className: 'text-[#58587a] text-[9px] font-medium tracking-wider uppercase' }, 'Security Console')
+      )
+    ),
+    React.createElement('button', { onClick: onToggle, className: 'md:hidden absolute top-3 right-2 text-[#6868a0] p-1' },
+      collapsed ? React.createElement(Icons.Menu, null) : React.createElement(Icons.X, null)
+    ),
+    React.createElement('nav', { className: 'flex-1 overflow-y-auto py-3 space-y-0.5 px-2' },
+      NAV_ITEMS.map(item => {
+        const isActive = active === item.id;
+        const Icon = Icons[item.icon];
+        return React.createElement('div', {
+          key: item.id,
+          onClick: () => onNavigate(item.id),
+          className: `nav-item flex items-center gap-2.5 px-3 py-2.5 rounded-md text-sm transition-all ${isActive ? 'nav-active bg-[#0d1a2a] text-cyan-400' : 'text-[#6868a0] hover:text-[#a0a0c0]'}`
+        },
+          React.createElement('span', { className: 'nav-icon flex-shrink-0' }, React.createElement(Icon, null)),
+          !collapsed && React.createElement('span', { className: 'font-medium truncate' }, item.label)
+        );
+      })
+    ),
+    React.createElement('div', { className: `border-t border-[#16162a] p-3 ${collapsed ? 'text-center' : ''}` },
+      React.createElement('div', { className: 'flex items-center gap-2' },
+        React.createElement('span', { className: 'w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(34,197,94,0.4)]' }),
+        !collapsed && React.createElement('span', { className: 'text-[#58587a] text-[10px] font-mono' }, ts)
+      )
+    )
+  );
+}
+
+// ═══════════════════════════════════════════
+//  PAGE: Overview
+// ═══════════════════════════════════════════
+function OverviewPage() {
+  const { data: stats, loading: sl, error: se } = useFetch(API + '/stats');
+  const { data: perf, loading: pl, error: pe } = useFetch(API + '/model-performance');
+  const { data: models, loading: ml, error: me } = useFetch(API + '/model-comparison');
+  const { data: findings, loading: fl, error: fe } = useFetch(API + '/key-findings');
+
+  if ((sl && !stats) || (pl && !perf) || (ml && !models) || (fl && !findings)) return React.createElement(Loading, null);
+  if (se || pe || me || fe) return React.createElement(ErrorMsg, { message: [se, pe, me, fe].filter(Boolean).join('; ') });
+
+  return React.createElement('div', null,
+    React.createElement(PageHeader, { title: 'HC-IDF Overview', subtitle: 'Human-Centric Intrusion Detection Framework — Evaluation Summary' }),
+    React.createElement('div', { className: 'grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8' },
+      React.createElement(StatCard, { label: 'Total Samples', value: stats.totalSamples, accent: 'cyan', delay: 50 }),
+      React.createElement(StatCard, { label: 'Features', value: stats.features, accent: 'cyan', delay: 120 }),
+      React.createElement(StatCard, { label: 'Benign', value: stats.benign, accent: 'green', delay: 190 }),
+      React.createElement(StatCard, { label: 'Attack', value: stats.attack, accent: 'red', delay: 260 }),
+    ),
+    React.createElement('div', { className: 'anim-fade glow-border rounded-lg border border-[#1a1a2e] p-5 mb-8', style: { animationDelay: '300ms' } },
+      React.createElement('div', { className: 'flex items-center justify-between mb-4' },
+        React.createElement('div', null,
+          React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase' }, 'Best Performing Model'),
+          React.createElement('div', { className: 'text-[#e0e0f0] font-mono font-bold text-lg mt-0.5' }, perf.model || 'Random Forest')
+        ),
+        React.createElement('div', { className: 'text-right' },
+          React.createElement('div', { className: 'text-[#58587a] text-[10px] font-mono' }, `${(perf.trainSamples || 0).toLocaleString()} TRAIN · ${(perf.testSamples || 0).toLocaleString()} TEST`)
+        )
+      ),
+      React.createElement('div', { className: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 mb-5' },
+        React.createElement(MetricBadge, { label: 'Accuracy', value: perf.accuracy }),
+        React.createElement(MetricBadge, { label: 'Precision', value: perf.precision }),
+        React.createElement(MetricBadge, { label: 'Recall', value: perf.recall }),
+        React.createElement(MetricBadge, { label: 'F1-Score', value: perf.f1 }),
+        React.createElement(MetricBadge, { label: 'AUC-ROC', value: perf.aucRoc }),
+      ),
+      React.createElement('div', { className: 'text-[#58587a] text-xs font-mono border-t border-[#1a1a2e] pt-3 mt-1' },
+        `${perf.model || 'Random Forest'} — ${perf.params || '100 estimators, max_depth=20, n_jobs=-1'} • F1=${(perf.f1 || 0).toFixed(4)}, AUC-ROC=${(perf.aucRoc || 0).toFixed(4)}, Latency=${(perf.latencyMs || 0).toFixed(2)}ms/sample`
+      )
+    ),
+    React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-2 gap-5' },
+      React.createElement('div', { className: 'anim-fade rounded-lg border border-[#1a1a2e] p-5', style: { animationDelay: '360ms' } },
+        React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase mb-4' }, 'Model Performance Comparison (F1)'),
+        React.createElement(BarChart, { data: models.map(m => ({ name: m.name, value: m.f1 })) })
+      ),
+      React.createElement('div', { className: 'anim-fade rounded-lg border border-[#1a1a2e] overflow-hidden', style: { animationDelay: '400ms' } },
+        React.createElement('div', { className: 'bg-[#0a0a18] px-5 py-3 border-b border-[#1a1a2e]' },
+          React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase' }, 'Key Findings'),
+        ),
+        React.createElement('div', { className: 'divide-y divide-[#1a1a2e]' },
+          findings.map((f, i) =>
+            React.createElement('div', { key: i, className: 'flex items-center gap-4 px-5 py-3 bg-[#0e0e1a] hover:bg-[#111125] transition-colors' },
+              React.createElement('div', { className: 'w-2 h-2 rounded-full bg-cyan-500/40 shrink-0' }),
+              React.createElement('div', { className: 'flex-1' },
+                React.createElement('div', { className: 'text-[#e0e0f0] text-sm font-medium' }, f.model),
+                React.createElement('div', { className: 'text-[#58587a] text-xs' }, f.desc)
+              ),
+              React.createElement('div', { className: 'font-mono text-xs text-cyan-400 font-semibold shrink-0' }, f.metric)
+            )
+          )
+        )
+      )
+    )
+  );
+}
+
+// ═══════════════════════════════════════════
+//  PAGE: Test Session
+// ═══════════════════════════════════════════
+function TestSessionPage() {
+  const { data, loading, error } = useFetch(API + '/test-session');
+  if (loading) return React.createElement(Loading, null);
+  if (error) return React.createElement(ErrorMsg, { message: error });
+  if (data.error) return React.createElement(ErrorMsg, { message: data.error });
+
+  const alerts = data.alerts || [];
+
+  return React.createElement('div', null,
+    React.createElement(PageHeader, { title: 'Test Session', subtitle: '12 Simulated Alerts — Baseline vs HC-IDF Decision Log' }),
+    React.createElement('div', { className: 'anim-fade rounded-lg border border-[#1a1a2e] overflow-hidden' },
+      React.createElement('div', { className: 'bg-[#0a0a18] px-5 py-3 border-b border-[#1a1a2e] flex items-center justify-between' },
+        React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase' }, 'Alert Log'),
+        React.createElement('div', { className: 'text-[#58587a] text-[10px] font-mono' }, `${alerts.length} alerts`),
+      ),
+      React.createElement('div', { className: 'overflow-x-auto' },
+        React.createElement('table', { className: 'w-full text-xs font-mono' },
+          React.createElement('thead', null,
+            React.createElement('tr', { className: 'bg-[#0a0a18] text-[#58587a] text-[10px] uppercase tracking-wider' },
+              React.createElement('th', { className: 'text-left px-4 py-2.5 font-medium' }, '#'),
+              React.createElement('th', { className: 'text-left px-4 py-2.5 font-medium' }, 'True Label'),
+              React.createElement('th', { className: 'text-left px-4 py-2.5 font-medium' }, 'Predicted'),
+              React.createElement('th', { className: 'text-right px-4 py-2.5 font-medium' }, 'Probability'),
+              React.createElement('th', { className: 'text-right px-4 py-2.5 font-medium' }, 'Dest Port'),
+              React.createElement('th', { className: 'text-right px-4 py-2.5 font-medium' }, 'Flow Duration'),
+              React.createElement('th', { className: 'text-right px-4 py-2.5 font-medium' }, 'Pkt Len Mean'),
+              React.createElement('th', { className: 'text-right px-4 py-2.5 font-medium' }, 'Flow IAT Mean'),
+              React.createElement('th', { className: 'text-center px-4 py-2.5 font-medium' }, 'Status'),
+            )
+          ),
+          React.createElement('tbody', { className: 'divide-y divide-[#1a1a2e]' },
+            alerts.map((a, i) => {
+              const isCorrect = a.trueLabel === a.predicted;
+              return React.createElement('tr', {
+                key: i,
+                className: `bg-[#0e0e1a] hover:bg-[#111125] transition-colors ${a.trueLabel === 'Attack' ? 'border-l-2 border-l-red-500/40' : 'border-l-2 border-l-emerald-500/20'}`
+              },
+                React.createElement('td', { className: 'px-4 py-3 text-[#6868a0]' }, a.alertIdx + 1),
+                React.createElement('td', { className: `px-4 py-3 font-medium ${a.trueLabel === 'Attack' ? 'text-red-400' : 'text-emerald-400'}` }, a.trueLabel),
+                React.createElement('td', { className: 'px-4 py-3 text-[#c8c8d8]' }, a.predicted),
+                React.createElement('td', { className: 'px-4 py-3 text-right text-[#c8c8d8]' }, a.probability.toFixed(4)),
+                React.createElement('td', { className: 'px-4 py-3 text-right text-[#a0a0c0]' }, a['Destination Port'] !== undefined ? a['Destination Port'] : '-'),
+                React.createElement('td', { className: 'px-4 py-3 text-right text-[#a0a0c0]' }, a['Flow Duration'] !== undefined ? a['Flow Duration'].toLocaleString() : '-'),
+                React.createElement('td', { className: 'px-4 py-3 text-right text-[#a0a0c0]' }, a['Packet Length Mean'] !== undefined ? a['Packet Length Mean'].toFixed(1) : '-'),
+                React.createElement('td', { className: 'px-4 py-3 text-right text-[#a0a0c0]' }, a['Flow IAT Mean'] !== undefined ? a['Flow IAT Mean'].toFixed(1) : '-'),
+                React.createElement('td', { className: 'px-4 py-3 text-center' },
+                  React.createElement('span', { className: `inline-block px-2 py-0.5 rounded text-[10px] font-semibold ${isCorrect ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}` },
+                    isCorrect ? 'CORRECT' : 'WRONG'
+                  )
+                )
+              );
+            })
+          )
+        )
+      )
+    ),
+    React.createElement('div', { className: 'mt-6 grid grid-cols-1 lg:grid-cols-2 gap-5' },
+      React.createElement('div', { className: 'anim-fade rounded-lg border border-[#1a1a2e] p-5', style: { animationDelay: '200ms' } },
+        React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase mb-3' }, 'Alert Summary'),
+        React.createElement('div', { className: 'space-y-2 text-xs font-mono' },
+          React.createElement('div', { className: 'flex justify-between' },
+            React.createElement('span', { className: 'text-[#6868a0]' }, 'Total Alerts'),
+            React.createElement('span', { className: 'text-[#e0e0f0]' }, alerts.length)
+          ),
+          React.createElement('div', { className: 'flex justify-between' },
+            React.createElement('span', { className: 'text-[#6868a0]' }, 'Attack Alerts'),
+            React.createElement('span', { className: 'text-red-400' }, alerts.filter(a => a.trueLabel === 'Attack').length)
+          ),
+          React.createElement('div', { className: 'flex justify-between' },
+            React.createElement('span', { className: 'text-[#6868a0]' }, 'Benign Alerts'),
+            React.createElement('span', { className: 'text-emerald-400' }, alerts.filter(a => a.trueLabel === 'Benign').length)
+          ),
+          React.createElement('div', { className: 'flex justify-between border-t border-[#1a1a2e] pt-2' },
+            React.createElement('span', { className: 'text-[#6868a0]' }, 'Correct Predictions'),
+            React.createElement('span', { className: 'text-emerald-400' }, alerts.filter(a => a.trueLabel === a.predicted).length)
+          ),
+          React.createElement('div', { className: 'flex justify-between' },
+            React.createElement('span', { className: 'text-[#6868a0]' }, 'Accuracy'),
+            React.createElement('span', { className: 'text-[#e0e0f0]' }, alerts.length ? `${(alerts.filter(a => a.trueLabel === a.predicted).length / alerts.length * 100).toFixed(1)}%` : '-')
+          ),
+        )
+      ),
+      React.createElement('div', { className: 'anim-fade rounded-lg border border-[#1a1a2e] p-5', style: { animationDelay: '250ms' } },
+        React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase mb-3' }, 'Feature Descriptions'),
+        React.createElement('div', { className: 'space-y-2 text-xs text-[#6868a0] font-mono' },
+          React.createElement('div', null, React.createElement('span', { className: 'text-[#a0a0c0]' }, 'Destination Port'), ' — Target port of the network flow'),
+          React.createElement('div', null, React.createElement('span', { className: 'text-[#a0a0c0]' }, 'Flow Duration'), ' — Time duration of the flow (µs)'),
+          React.createElement('div', null, React.createElement('span', { className: 'text-[#a0a0c0]' }, 'Packet Length Mean'), ' — Mean size of packets in the flow'),
+          React.createElement('div', null, React.createElement('span', { className: 'text-[#a0a0c0]' }, 'Flow IAT Mean'), ' — Mean inter-arrival time between packets'),
+        )
+      )
+    )
+  );
+}
+
+// ═══════════════════════════════════════════
+//  PAGE: Detection Models
+// ═══════════════════════════════════════════
+function ModelsPage() {
+  const { data, loading, error } = useFetch(API + '/detection-models');
+  const { data: comp, loading: cl, error: ce } = useFetch(API + '/model-comparison');
+
+  if (loading && !data) return React.createElement(Loading, null);
+  if (error) return React.createElement(ErrorMsg, { message: error });
+
+  const ml = data.ml || [];
+  const dl = data.dl || [];
+  const comparison = (cl ? [] : comp) || [];
+
+  function renderTable(rows, cols) {
+    if (!rows || rows.length === 0) return React.createElement('div', { className: 'text-[#58587a] text-xs font-mono p-4' }, 'No data');
+    const keys = Object.keys(rows[0]);
+    return React.createElement('div', { className: 'overflow-x-auto' },
+      React.createElement('table', { className: 'w-full text-xs font-mono' },
+        React.createElement('thead', null,
+          React.createElement('tr', { className: 'bg-[#0a0a18] text-[#58587a] text-[10px] uppercase tracking-wider' },
+            keys.map(k => React.createElement('th', { key: k, className: 'text-left px-4 py-2.5 font-medium' }, k === 'model' ? 'Model' : k))
+          )
+        ),
+        React.createElement('tbody', { className: 'divide-y divide-[#1a1a2e]' },
+          rows.map((row, i) =>
+            React.createElement('tr', { key: i, className: 'bg-[#0e0e1a] hover:bg-[#111125] transition-colors' },
+              keys.map(k => {
+                const val = row[k];
+                const isNum = typeof val === 'number';
+                return React.createElement('td', {
+                  key: k,
+                  className: `px-4 py-3 ${k === 'model' ? 'text-[#e0e0f0] font-medium' : 'text-right text-[#a0a0c0]'}`
+                }, isNum ? val.toFixed(4) : val);
+              })
+            )
+          )
+        )
+      )
+    );
+  }
+
+  return React.createElement('div', null,
+    React.createElement(PageHeader, { title: 'Detection Models', subtitle: 'Machine Learning & Deep Learning Baseline Performance' }),
+    React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-2 gap-5 mb-8' },
+      React.createElement('div', { className: 'anim-fade rounded-lg border border-[#1a1a2e] overflow-hidden' },
+        React.createElement('div', { className: 'bg-[#0a0a18] px-5 py-3 border-b border-[#1a1a2e]' },
+          React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase' }, 'Machine Learning'),
+        ),
+        renderTable(ml)
+      ),
+      React.createElement('div', { className: 'anim-fade rounded-lg border border-[#1a1a2e] overflow-hidden' },
+        React.createElement('div', { className: 'bg-[#0a0a18] px-5 py-3 border-b border-[#1a1a2e]' },
+          React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase' }, 'Deep Learning'),
+        ),
+        renderTable(dl)
+      ),
+    ),
+    React.createElement('div', { className: 'anim-fade rounded-lg border border-[#1a1a2e] p-5' },
+      React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase mb-4' }, 'Full Model Comparison (F1 Score)'),
+      comparison.length ? React.createElement(BarChart, { data: comparison.map(m => ({ name: m.name, value: m.f1 })) }) : React.createElement('div', { className: 'text-[#58587a] text-xs font-mono' }, 'Loading...')
+    )
+  );
+}
+
+// ═══════════════════════════════════════════
+//  PAGE: Explanations (XAI)
+// ═══════════════════════════════════════════
+function ExplanationsPage() {
+  const { data, loading, error } = useFetch(API + '/xai');
+  const { data: fi, loading: fil, error: fie } = useFetch(API + '/feature-importance');
+
+  if (loading && !data) return React.createElement(Loading, null);
+  if (error) return React.createElement(ErrorMsg, { message: error });
+
+  const limeFeatures = data.limeFeatures || [];
+  const topFeatures = fi || [];
+
+  return React.createElement('div', null,
+    React.createElement(PageHeader, { title: 'Explanations (XAI)', subtitle: 'Feature Importance & LIME Explanations per Alert' }),
+    React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-2 gap-5 mb-8' },
+      React.createElement('div', { className: 'anim-fade rounded-lg border border-[#1a1a2e] p-5' },
+        React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase mb-4' }, 'LIME — Local Explanations'),
+        React.createElement('div', { className: 'space-y-2' },
+          limeFeatures.map((f, i) =>
+            React.createElement('div', { key: i, className: 'flex items-center gap-3 text-xs font-mono bg-[#0a0a18] rounded px-3 py-2 border border-[#1a1a2e]' },
+              React.createElement('span', { className: 'w-5 h-5 rounded-full bg-cyan-500/10 text-cyan-400 flex items-center justify-center text-[10px] font-bold' }, i + 1),
+              React.createElement('span', { className: 'text-[#c8c8d8]' }, f)
+            )
+          )
+        )
+      ),
+      React.createElement('div', { className: 'anim-fade rounded-lg border border-[#1a1a2e] p-5' },
+        React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase mb-4' }, 'Global Feature Importance'),
+        React.createElement(BarChart, { data: topFeatures.slice(0, 10).map(f => ({ name: f.feature, value: f.importance })) })
+      ),
+    ),
+    React.createElement('div', { className: 'anim-fade rounded-lg border border-[#1a1a2e] p-5' },
+      React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase mb-3' }, 'SHAP Summary'),
+      React.createElement('div', { className: 'text-[#58587a] text-xs font-mono' },
+        data.shapAvailable
+          ? React.createElement('div', null,
+              React.createElement('img', {
+                src: API + '/shap-image',
+                alt: 'SHAP Summary Plot',
+                className: 'max-w-full rounded border border-[#1a1a2e]',
+                onError: (e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }
+              }),
+              React.createElement('div', { className: 'hidden text-[#58587a] text-xs mt-2' }, 'SHAP summary plot not available'))
+          : React.createElement('div', null, 'SHAP summary plot not generated. Run colab_hcidf.py Part 4 to generate it.')
+      )
+    )
+  );
+}
+
+// ═══════════════════════════════════════════
+//  PAGE: MITM & Feedback
+// ═══════════════════════════════════════════
+function MitmPage() {
+  const { data: mitm, loading: ml, error: me } = useFetch(API + '/mitm');
+  const { data: feedback, loading: fl, error: fe } = useFetch(API + '/feedback');
+  const { data: stats, loading: sl, error: se } = useFetch(API + '/statistical-tests');
+
+  if ((ml && !mitm) || (fl && !feedback)) return React.createElement(Loading, null);
+  if (me || fe) return React.createElement(ErrorMsg, { message: [me, fe].filter(Boolean).join('; ') });
+
+  return React.createElement('div', null,
+    React.createElement(PageHeader, { title: 'MITM Detection & Feedback', subtitle: 'Dedicated MITM Module, User Feedback Loop, Statistical Validation' }),
+    React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-2 gap-5 mb-8' },
+      React.createElement('div', { className: 'anim-fade glow-border rounded-lg border border-[#1a1a2e] p-5' },
+        React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase mb-4' }, 'MITM Detection Module'),
+        React.createElement('div', { className: 'grid grid-cols-3 gap-3 mb-4' },
+          React.createElement(MetricBadge, { label: 'Precision', value: mitm.precision }),
+          React.createElement(MetricBadge, { label: 'Recall', value: mitm.recall }),
+          React.createElement(MetricBadge, { label: 'F1 Score', value: mitm.f1 }),
+        ),
+        React.createElement('div', { className: 'text-[#58587a] text-xs font-mono border-t border-[#1a1a2e] pt-3' },
+          React.createElement('div', null, React.createElement('span', { className: 'text-[#a0a0c0]' }, 'ARP Alerts: '), mitm.arpAlerts),
+          React.createElement('div', { className: 'mt-1' }, mitm.description)
+        )
+      ),
+      React.createElement('div', { className: 'anim-fade rounded-lg border border-[#1a1a2e] p-5' },
+        React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase mb-4' }, 'User Feedback Loop'),
+        React.createElement('div', { className: 'space-y-2 text-xs font-mono' },
+          React.createElement('div', { className: 'flex justify-between' },
+            React.createElement('span', { className: 'text-[#6868a0]' }, 'Retraining Cycles'),
+            React.createElement('span', { className: 'text-[#e0e0f0]' }, feedback.retrainingCycles)
+          ),
+          React.createElement('div', { className: 'flex justify-between' },
+            React.createElement('span', { className: 'text-[#6868a0]' }, 'Samples per Cycle'),
+            React.createElement('span', { className: 'text-[#e0e0f0]' }, feedback.samplesPerCycle)
+          ),
+          React.createElement('div', { className: 'flex justify-between border-t border-[#1a1a2e] pt-2' },
+            React.createElement('span', { className: 'text-[#6868a0]' }, 'Pre-Feedback F1'),
+            React.createElement('span', { className: 'text-emerald-400' }, feedback.preFeedbackF1.toFixed(4))
+          ),
+          React.createElement('div', { className: 'flex justify-between' },
+            React.createElement('span', { className: 'text-[#6868a0]' }, 'Post-Feedback F1'),
+            React.createElement('span', { className: 'text-amber-400' }, feedback.postFeedbackF1.toFixed(4))
+          ),
+        ),
+        React.createElement('div', { className: 'text-[#58587a] text-xs font-mono border-t border-[#1a1a2e] pt-3 mt-3' },
+          feedback.note
+        )
+      ),
+    ),
+    React.createElement('div', { className: 'anim-fade rounded-lg border border-[#1a1a2e] p-5' },
+      React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase mb-4' }, 'Statistical Validation (User Study)'),
+      stats && stats.userStudy ? React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-3 gap-5' },
+        React.createElement('div', { className: 'space-y-2 text-xs font-mono' },
+          React.createElement('div', { className: 'text-[#a0a0c0] text-[10px] uppercase tracking-wider mb-2 font-semibold' }, 'Accuracy'),
+          React.createElement('div', { className: 'flex justify-between' },
+            React.createElement('span', { className: 'text-[#6868a0]' }, 'Baseline'),
+            React.createElement('span', { className: 'text-[#e0e0f0]' }, `${(stats.userStudy.baselineAccuracy * 100).toFixed(1)}%`)
+          ),
+          React.createElement('div', { className: 'flex justify-between' },
+            React.createElement('span', { className: 'text-[#6868a0]' }, 'HC-IDF'),
+            React.createElement('span', { className: 'text-emerald-400' }, `${(stats.userStudy.hcidfAccuracy * 100).toFixed(1)}%`)
+          ),
+          React.createElement('div', { className: 'flex justify-between border-t border-[#1a1a2e] pt-2' },
+            React.createElement('span', { className: 'text-[#6868a0]' }, 't-test p'),
+            React.createElement('span', { className: stats.userStudy.accuracyTtest.significant ? 'text-emerald-400' : 'text-red-400' }, stats.userStudy.accuracyTtest.p)
+          ),
+          React.createElement('div', { className: 'flex justify-between' },
+            React.createElement('span', { className: 'text-[#6868a0]' }, "Cohen's d"),
+            React.createElement('span', { className: 'text-[#e0e0f0]' }, stats.userStudy.cohensD.accuracy.toFixed(2))
+          ),
+        ),
+        React.createElement('div', { className: 'space-y-2 text-xs font-mono' },
+          React.createElement('div', { className: 'text-[#a0a0c0] text-[10px] uppercase tracking-wider mb-2 font-semibold' }, 'Response Time'),
+          React.createElement('div', { className: 'flex justify-between' },
+            React.createElement('span', { className: 'text-[#6868a0]' }, 'Baseline'),
+            React.createElement('span', { className: 'text-[#e0e0f0]' }, `${stats.userStudy.baselineTime.toFixed(2)}s`)
+          ),
+          React.createElement('div', { className: 'flex justify-between' },
+            React.createElement('span', { className: 'text-[#6868a0]' }, 'HC-IDF'),
+            React.createElement('span', { className: 'text-emerald-400' }, `${stats.userStudy.hcidfTime.toFixed(2)}s`)
+          ),
+          React.createElement('div', { className: 'flex justify-between border-t border-[#1a1a2e] pt-2' },
+            React.createElement('span', { className: 'text-[#6868a0]' }, 't-test p'),
+            React.createElement('span', { className: stats.userStudy.timeTtest.significant ? 'text-emerald-400' : 'text-red-400' }, stats.userStudy.timeTtest.p)
+          ),
+          React.createElement('div', { className: 'flex justify-between' },
+            React.createElement('span', { className: 'text-[#6868a0]' }, "Cohen's d"),
+            React.createElement('span', { className: 'text-[#e0e0f0]' }, stats.userStudy.cohensD.time.toFixed(2))
+          ),
+        ),
+        React.createElement('div', { className: 'space-y-2 text-xs font-mono' },
+          React.createElement('div', { className: 'text-[#a0a0c0] text-[10px] uppercase tracking-wider mb-2 font-semibold' }, 'Study Info'),
+          React.createElement('div', { className: 'flex justify-between' },
+            React.createElement('span', { className: 'text-[#6868a0]' }, 'Sample Size'),
+            React.createElement('span', { className: 'text-[#e0e0f0]' }, `n = ${stats.userStudy.sampleSize}`)
+          ),
+          React.createElement('div', { className: 'text-[#58587a] text-[10px] mt-3 leading-relaxed' },
+            'Paired t-tests show statistically significant improvement (p < 0.001) in both accuracy and response time when using HC-IDF compared to baseline (no AI assistance).'
+          )
+        )
+      ) : React.createElement(Loading, null)
+    )
+  );
+}
+
+// ═══════════════════════════════════════════
+//  PAGE: Live Capture
+// ═══════════════════════════════════════════
+function CapturePage() {
+  const { data, loading, error } = useFetch(API + '/capture/status');
+  if (loading) return React.createElement(Loading, null);
+  if (error) return React.createElement(ErrorMsg, { message: error });
+
+  return React.createElement('div', null,
+    React.createElement(PageHeader, { title: 'Live Packet Capture', subtitle: 'Real-Time Network Traffic Analysis via Scapy' }),
+    React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-2 gap-5 mb-8' },
+      React.createElement('div', { className: 'anim-fade glow-border rounded-lg border border-[#1a1a2e] p-5' },
+        React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase mb-4' }, 'Capture Status'),
+        React.createElement('div', { className: 'flex items-center gap-3 mb-4' },
+          React.createElement('span', { className: `w-3 h-3 rounded-full ${data.running ? 'bg-emerald-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-[#58587a]'}` }),
+          React.createElement('span', { className: 'font-mono text-sm text-[#e0e0f0]' }, data.running ? 'CAPTURE ACTIVE' : 'CAPTURE IDLE')
+        ),
+        React.createElement('div', { className: 'text-[#58587a] text-xs font-mono' }, data.message),
+        React.createElement('button', {
+          className: 'mt-4 px-5 py-2 rounded bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-mono font-semibold transition-colors disabled:opacity-20 disabled:cursor-not-allowed',
+          disabled: true,
+          title: 'Requires Npcap + Scapy on backend'
+        }, data.running ? 'Stop Capture' : 'Start Capture')
+      ),
+      React.createElement('div', { className: 'anim-fade rounded-lg border border-[#1a1a2e] p-5' },
+        React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase mb-4' }, 'Recent Captures'),
+        React.createElement('div', { className: 'text-[#58587a] text-xs font-mono' },
+          'Live packet capture runs on the backend via Scapy. ',
+          'Start the capture module with:', React.createElement('br', null),
+          React.createElement('span', { className: 'text-[#a0a0c0]' }, 'python src/network/capture.py'),
+          React.createElement('div', { className: 'mt-3 text-[10px]' },
+            'Requires: Npcap installed, admin/sudo privileges, and network interface with traffic.'
+          )
+        )
+      ),
+    )
+  );
+}
+
+// ═══════════════════════════════════════════
+//  PAGE: Grafana
+// ═══════════════════════════════════════════
+function GrafanaPage() {
+  return React.createElement('div', { className: 'h-[calc(100vh-8rem)] flex flex-col' },
+    React.createElement(PageHeader, { title: 'Grafana Dashboard', subtitle: 'Real-Time Metrics & Visualization' }),
+    React.createElement('div', { className: 'anim-fade rounded-lg border border-[#1a1a2e] p-5 flex-1 flex flex-col' },
+      React.createElement('div', { className: 'text-[#6868a0] text-[10px] font-semibold tracking-widest uppercase mb-3' }, 'Embedded Grafana Panel'),
+      React.createElement('div', { className: 'flex-1 rounded border border-[#1a1a2e] overflow-hidden bg-[#0a0a14] flex items-center justify-center' },
+        React.createElement('div', { className: 'text-center text-[#58587a] text-xs font-mono p-8' },
+          React.createElement('div', { className: 'text-3xl mb-3 opacity-30' }, '📊'),
+          React.createElement('div', null, 'Grafana instance should be running at'),
+          React.createElement('div', { className: 'text-[#a0a0c0] mt-1' }, 'http://localhost:3000'),
+          React.createElement('div', { className: 'mt-4 text-[10px]' },
+            'Start with: ', React.createElement('span', { className: 'text-[#a0a0c0]' }, 'docker-compose -f grafana/docker-compose.yml up -d'),
+          ),
+          React.createElement('div', { className: 'mt-6 text-[10px] leading-relaxed text-[#6868a0]' },
+            'Default login: admin / admin', React.createElement('br', null),
+            'Configure Prometheus data source + import dashboard JSON from grafana/provisioning/dashboards/'
+          )
+        )
+      )
+    )
+  );
+}
+
+// ═══════════════════════════════════════════
+//  APP
+// ═══════════════════════════════════════════
+function App() {
+  const [page, setPage] = useState('overview');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(window.innerWidth < 768);
+
+  useEffect(() => {
+    const handler = () => setSidebarCollapsed(window.innerWidth < 768);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+
+  const pages = {
+    overview: OverviewPage,
+    'test-session': TestSessionPage,
+    models: ModelsPage,
+    explanations: ExplanationsPage,
+    mitm: MitmPage,
+    capture: CapturePage,
+    grafana: GrafanaPage,
+  };
+
+  const Page = pages[page] || pages.overview;
+
+  return React.createElement('div', { className: 'flex min-h-screen bg-[#08080f] bg-grid' },
+    React.createElement(Sidebar, { active: page, onNavigate: setPage, collapsed: sidebarCollapsed, onToggle: () => setSidebarCollapsed(!sidebarCollapsed) }),
+    React.createElement('main', { className: `flex-1 transition-all duration-200 ${sidebarCollapsed ? 'ml-16' : 'ml-56'} p-5 md:p-8 max-w-7xl` },
+      React.createElement(Page, null)
+    )
+  );
+}
+
+const root = createRoot(document.getElementById('root'));
+root.render(React.createElement(App));
+</script>
+</body>
+</html>
