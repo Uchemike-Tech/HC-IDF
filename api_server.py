@@ -10,6 +10,7 @@ from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from src.network.capture import LiveCapture
+from src.detection.mitigation import MitigationOrchestrator
 
 app = FastAPI(title="HC-IDF API", version="2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -49,6 +50,16 @@ load_cache()
 # ── Live capture instance ──
 capture = LiveCapture()
 SCAPY_AVAIL = True
+
+# ── Mitigation orchestrator ──
+import yaml
+mitigation_config = {}
+try:
+    with open("config/config.yaml") as f:
+        mitigation_config = yaml.safe_load(f).get("mitigation", {})
+except Exception:
+    pass
+mitigator = MitigationOrchestrator(mitigation_config)
 try:
     from scapy.all import conf
     conf.verb = 0
@@ -427,6 +438,15 @@ async def capture_alerts():
     if not capture.running:
         return {"alerts": []}
     alerts = capture.alerts[-50:]
+    for alert in alerts:
+        if alert.get("type") in ("arp_mitm", "port_scan", "unusual_port"):
+            mitigator.handle_mitm_alert({
+                "mitm_alert": True,
+                "mitm_type": [alert.get("type", "unknown").upper()],
+                "src_ip": alert.get("src_ip", ""),
+                "dst_ip": alert.get("dst_ip", ""),
+                "severity": alert.get("severity", "high"),
+            })
     return {"alerts": alerts}
 
 @app.get("/api/capture/stats")
@@ -474,6 +494,29 @@ async def get_shap_image():
     if shap_path.exists():
         return FileResponse(str(shap_path), media_type="image/png")
     return JSONResponse({"error": "Not found"}, status_code=404)
+
+# ── Mitigation endpoints ──
+@app.get("/api/mitigation/stats")
+async def get_mitigation_stats():
+    return mitigator.get_stats()
+
+@app.get("/api/mitigation/logs")
+async def get_mitigation_logs(limit: int = 50):
+    return {"logs": mitigator.get_logs(limit)}
+
+@app.post("/api/mitigation/toggle-auto")
+async def toggle_auto_mitigation(data: dict = None):
+    enabled = data.get("enabled") if data else None
+    state = mitigator.toggle_auto_mitigation(enabled)
+    return {"auto_mitigation": state}
+
+@app.post("/api/mitigation/unblock")
+async def unblock_ip(data: dict):
+    ip = data.get("ip", "")
+    if not ip:
+        return {"status": "error", "message": "No IP provided"}
+    ok = mitigator.unblock_ip(ip)
+    return {"status": "ok" if ok else "not_found", "ip": ip}
 
 if __name__ == "__main__":
     import uvicorn

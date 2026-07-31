@@ -62,6 +62,16 @@ mitm:
   session:
     rtt_std_threshold: 2.5
 
+mitigation:
+  auto_mitigation: true
+  auto_block_duration: 1800
+  default_block_duration: 3600
+  persist_blocks: true
+  actions:
+    block_ip: true
+    terminate_session: true
+    log_only: false
+
 xai:
   shap:
     enabled: true

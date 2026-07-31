@@ -11,6 +11,7 @@ from src.xai.explainer import XAIExplainer
 from src.feedback.feedback_loop import FeedbackLoop
 from src.evaluation.metrics import MetricsCalculator
 from src.evaluation.statistical_tests import StatisticalTests
+from src.detection.mitigation import MitigationOrchestrator
 
 
 def load_data(config: dict) -> pd.DataFrame:
@@ -102,6 +103,23 @@ def main():
     mitm_mask = (y_test == 1).values
     mitm_metrics = metrics.compute_mitm_specific(y_test.values, y_pred_baseline, mitm_mask)
     print(f"[MITM] F1: {mitm_metrics.get('mitm_f1', 0):.4f}")
+
+    # 6b. Mitigation actions on detected MITM attacks
+    print("[MITIGATION] Initialising response engine...")
+    mitigator = MitigationOrchestrator(config)
+    mitm_indices = mitm_mask.nonzero()[0][:50]
+    for idx in mitm_indices:
+        alert = {
+            "mitm_alert": True,
+            "mitm_type": ["ARP_SPOOFING"] if np.random.random() > 0.5 else ["SESSION_HIJACKING"],
+            "src_ip": f"10.0.{np.random.randint(1, 255)}.{np.random.randint(1, 255)}",
+            "dst_ip": "10.0.0.1",
+        }
+        result = mitigator.handle_mitm_alert(alert)
+        if result["action_count"] > 0:
+            print(f"  [MITIGATION] {result['actions'][0]['action']} → {result['actions'][0]['target']} ({result['severity']})")
+    mitigator_stats = mitigator.get_stats()
+    print(f"[MITIGATION] {mitigator_stats['total_mitigations']} actions taken, {mitigator_stats['active_blocks']} IPs blocked")
 
     # 7. Simulate feedback loop
     print("[FEEDBACK] Simulating human-in-the-loop...")

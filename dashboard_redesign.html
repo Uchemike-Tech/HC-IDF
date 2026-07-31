@@ -191,6 +191,12 @@ const Icons = {
     React.createElement('path', { d:'M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9' }),
     React.createElement('path', { d:'M12 12v3' })
   ),
+  ShieldOff: () => React.createElement('svg', { xmlns:'http://www.w3.org/2000/svg', width:18, height:18, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:2, strokeLinecap:'round', strokeLinejoin:'round' },
+    React.createElement('path', { d:'M19.7 14a6.9 6.9 0 0 0 .3-2V5l-8-3-3.2 1.2' }),
+    React.createElement('path', { d:'M4.2 6.2 4 7v6c0 6 8 10 8 10' }),
+    React.createElement('path', { d:'M1 1l22 22' }),
+    React.createElement('path', { d:'M9.5 17.5 12 19l2.5-1.5' })
+  ),
   Menu: () => React.createElement('svg', { xmlns:'http://www.w3.org/2000/svg', width:20, height:20, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:2, strokeLinecap:'round', strokeLinejoin:'round' },
     React.createElement('line', { x1:4, x2:20, y1:12, y2:12 }),
     React.createElement('line', { x1:4, x2:20, y1:6, y2:6 }),
@@ -347,6 +353,7 @@ function Sidebar({ active, onNavigate, collapsed, onToggle }) {
     { id: 'mitm', label: 'MITM & Feedback', icon: 'AlertTriangle' },
     { id: 'capture', label: 'Live Capture', icon: 'Radio' },
     { id: 'grafana', label: 'Grafana', icon: 'GitFork' },
+    { id: 'mitigation', label: 'Mitigation', icon: 'ShieldOff' },
   ];
   const ts = liveTime();
   return React.createElement('div', {
@@ -1087,6 +1094,160 @@ function GrafanaPage() {
 }
 
 // ═══════════════════════════════════════════
+//  PAGE: Mitigation
+// ═══════════════════════════════════════════
+function MitigationPage() {
+  const [stats, setStats] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [autoMit, setAutoMit] = useState(true);
+  const [unblockMsg, setUnblockMsg] = useState('');
+
+  const fetchData = () => {
+    fetch('/api/mitigation/stats').then(r => r.json()).then(d => { setStats(d); setAutoMit(d.auto_mitigation_enabled); setLoading(false); });
+    fetch('/api/mitigation/logs?limit=20').then(r => r.json()).then(d => setLogs(d.logs || []));
+  };
+
+  useEffect(() => { fetchData(); const iv = setInterval(fetchData, 5000); return () => clearInterval(iv); }, []);
+
+  const toggleAuto = () => {
+    fetch('/api/mitigation/toggle-auto', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({enabled: !autoMit}) })
+      .then(r => r.json()).then(d => setAutoMit(d.auto_mitigation));
+  };
+
+  const unblock = (ip) => {
+    fetch('/api/mitigation/unblock', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ip}) })
+      .then(r => r.json()).then(d => { setUnblockMsg(`${ip}: ${d.status}`); fetchData(); setTimeout(() => setUnblockMsg(''), 3000); });
+  };
+
+  if (loading) return React.createElement('div', { className: 'text-center text-[var(--text-dim)] py-20 text-xs' }, 'Loading mitigation data...');
+
+  return React.createElement('div', { className: 'space-y-6 anim-fade' },
+    React.createElement(PageHeader, { title: 'Mitigation Center', subtitle: 'Automated Response to MITM Attacks & Network Threats' }),
+
+    // ── Status cards ──
+    React.createElement('div', { className: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4' },
+      React.createElement('div', { className: 'rounded-lg border border-[var(--border-light)] p-4 bg-[var(--bg-secondary)]' },
+        React.createElement('div', { className: 'text-[var(--text-muted)] text-[10px] font-semibold tracking-widest uppercase' }, 'Total Mitigations'),
+        React.createElement('div', { className: 'text-2xl font-bold mt-1 text-[var(--text-nav-hover)]' }, stats.total_mitigations)
+      ),
+      React.createElement('div', { className: 'rounded-lg border border-[var(--border-light)] p-4 bg-[var(--bg-secondary)]' },
+        React.createElement('div', { className: 'text-[var(--text-muted)] text-[10px] font-semibold tracking-widest uppercase' }, 'Active Blocks'),
+        React.createElement('div', { className: 'text-2xl font-bold mt-1 text-red-400' }, stats.active_blocks)
+      ),
+      React.createElement('div', { className: 'rounded-lg border border-[var(--border-light)] p-4 bg-[var(--bg-secondary)]' },
+        React.createElement('div', { className: 'text-[var(--text-muted)] text-[10px] font-semibold tracking-widest uppercase' }, 'Terminated Sessions'),
+        React.createElement('div', { className: 'text-2xl font-bold mt-1 text-[var(--text-nav-hover)]' }, (stats.terminated_sessions || []).length)
+      ),
+      React.createElement('div', { className: 'rounded-lg border border-[var(--border-light)] p-4 bg-[var(--bg-secondary)]' },
+        React.createElement('div', { className: 'text-[var(--text-muted)] text-[10px] font-semibold tracking-widest uppercase' }, 'Auto-Mitigation'),
+        React.createElement('div', { className: 'text-2xl font-bold mt-1 ' + (autoMit ? 'text-emerald-400' : 'text-yellow-400') },
+          autoMit ? 'ENABLED' : 'DISABLED'
+        )
+      )
+    ),
+
+    // ── Auto-mitigation toggle ──
+    React.createElement('div', { className: 'rounded-lg border border-[var(--border-light)] p-4 bg-[var(--bg-secondary)] flex items-center justify-between' },
+      React.createElement('div', null,
+        React.createElement('div', { className: 'text-sm font-semibold' }, 'Automated Response'),
+        React.createElement('div', { className: 'text-[var(--text-muted)] text-[11px] mt-0.5' }, autoMit ? 'IPs are blocked and sessions terminated automatically on MITM detection' : 'Manual review required — alerts are logged but no action is taken')
+      ),
+      React.createElement('button', { onClick: toggleAuto, className: `px-4 py-1.5 rounded text-xs font-semibold transition-colors ${autoMit ? 'bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30' : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'}` },
+        autoMit ? 'Disable Auto' : 'Enable Auto'
+      )
+    ),
+
+    // ── Unblock message ──
+    unblockMsg ? React.createElement('div', { className: 'text-xs text-emerald-400 font-mono px-1' }, unblockMsg) : null,
+
+    // ── Active blocks table ──
+    (stats.blocked_ips || []).length > 0 ? React.createElement('div', { className: 'rounded-lg border border-[var(--border-light)] overflow-hidden bg-[var(--bg-secondary)]' },
+      React.createElement('div', { className: 'text-[var(--text-muted)] text-[10px] font-semibold tracking-widest uppercase px-4 py-3 border-b border-[var(--border-light)]' }, 'Blocked IP Addresses'),
+      React.createElement('div', { className: 'overflow-x-auto' },
+        React.createElement('table', { className: 'w-full text-xs' },
+          React.createElement('thead', { className: 'text-[var(--text-muted)] text-[10px] uppercase tracking-wider' },
+            React.createElement('tr', { className: 'border-b border-[var(--border-light)]' },
+              React.createElement('th', { className: 'text-left px-4 py-2 font-semibold' }, 'IP Address'),
+              React.createElement('th', { className: 'text-left px-4 py-2 font-semibold' }, 'Reason'),
+              React.createElement('th', { className: 'text-left px-4 py-2 font-semibold' }, 'Blocked At'),
+              React.createElement('th', { className: 'text-left px-4 py-2 font-semibold' }, 'Expires At'),
+              React.createElement('th', { className: 'text-right px-4 py-2 font-semibold' }, 'Action'),
+            )
+          ),
+          React.createElement('tbody', null,
+            (stats.blocked_ips || []).map((b, i) =>
+              React.createElement('tr', { key: i, className: 'border-b border-[var(--border-light)] hover:bg-[var(--bg-hover)]' },
+                React.createElement('td', { className: 'px-4 py-2 font-mono text-[var(--text-nav-hover)]' }, b.ip),
+                React.createElement('td', { className: 'px-4 py-2 text-[var(--text-dim)]' }, b.reason || 'MITM attack'),
+                React.createElement('td', { className: 'px-4 py-2 text-[var(--text-dim)]' }, new Date(b.blocked_at).toLocaleString()),
+                React.createElement('td', { className: 'px-4 py-2 text-[var(--text-dim)]' }, new Date(b.expires_at).toLocaleString()),
+                React.createElement('td', { className: 'px-4 py-2 text-right' },
+                  React.createElement('button', { onClick: () => unblock(b.ip), className: 'text-xs text-red-400 hover:text-red-300 font-semibold transition-colors' }, 'Unblock')
+                )
+              )
+            )
+          )
+        )
+      )
+    ) : React.createElement('div', { className: 'rounded-lg border border-[var(--border-light)] p-6 bg-[var(--bg-secondary)] text-center text-[var(--text-dim)] text-xs' },
+      'No IPs currently blocked. Blocked addresses appear here when mitigation actions are triggered.'
+    ),
+
+    // ── Recent mitigation log ──
+    React.createElement('div', { className: 'rounded-lg border border-[var(--border-light)] overflow-hidden bg-[var(--bg-secondary)]' },
+      React.createElement('div', { className: 'text-[var(--text-muted)] text-[10px] font-semibold tracking-widest uppercase px-4 py-3 border-b border-[var(--border-light)]' }, 'Recent Mitigation Actions'),
+      logs.length === 0
+        ? React.createElement('div', { className: 'p-6 text-center text-[var(--text-dim)] text-xs' }, 'No mitigation actions recorded yet.')
+        : React.createElement('div', { className: 'overflow-x-auto' },
+            React.createElement('table', { className: 'w-full text-xs' },
+              React.createElement('thead', { className: 'text-[var(--text-muted)] text-[10px] uppercase tracking-wider' },
+                React.createElement('tr', { className: 'border-b border-[var(--border-light)]' },
+                  React.createElement('th', { className: 'text-left px-4 py-2 font-semibold' }, 'Timestamp'),
+                  React.createElement('th', { className: 'text-left px-4 py-2 font-semibold' }, 'MITM Type'),
+                  React.createElement('th', { className: 'text-left px-4 py-2 font-semibold' }, 'Severity'),
+                  React.createElement('th', { className: 'text-left px-4 py-2 font-semibold' }, 'Actions Taken'),
+                  React.createElement('th', { className: 'text-left px-4 py-2 font-semibold' }, 'Auto'),
+                )
+              ),
+              React.createElement('tbody', null,
+                logs.slice().reverse().map((row, i) =>
+                  React.createElement('tr', { key: i, className: 'border-b border-[var(--border-light)] hover:bg-[var(--bg-hover)]' },
+                    React.createElement('td', { className: 'px-4 py-2 text-[var(--text-dim)] font-mono text-[10px]' }, new Date(row.timestamp).toLocaleString()),
+                    React.createElement('td', { className: 'px-4 py-2' }, row.mitm_types),
+                    React.createElement('td', { className: 'px-4 py-2' },
+                      React.createElement('span', { className: `px-2 py-0.5 rounded text-[10px] font-semibold ${row.severity === 'critical' ? 'bg-red-500/20 text-red-300' : row.severity === 'high' ? 'bg-yellow-500/20 text-yellow-300' : 'bg-blue-500/20 text-blue-300'}` }, row.severity)
+                    ),
+                    React.createElement('td', { className: 'px-4 py-2 text-[var(--text-dim)] font-mono text-[10px]' }, row.actions || '—'),
+                    React.createElement('td', { className: 'px-4 py-2' },
+                      row.auto_mitigated === 'True' || row.auto_mitigated === true
+                        ? React.createElement('span', { className: 'text-emerald-400 text-[10px] font-semibold' }, 'Yes')
+                        : React.createElement('span', { className: 'text-yellow-400 text-[10px] font-semibold' }, 'No')
+                    )
+                  )
+                )
+              )
+            )
+          )
+    ),
+
+    // ── Mitigation info ──
+    React.createElement('div', { className: 'rounded-lg border border-[var(--border-light)] p-4 bg-[var(--bg-secondary)]' },
+      React.createElement('div', { className: 'text-[var(--text-muted)] text-[10px] font-semibold tracking-widest uppercase mb-2' }, 'About Automated Mitigation'),
+      React.createElement('div', { className: 'text-[var(--text-dim)] text-xs leading-relaxed space-y-1' },
+        React.createElement('p', null, 'The mitigation engine responds to MITM threats in real time:'),
+        React.createElement('ul', { className: 'list-disc list-inside space-y-0.5' },
+          React.createElement('li', null, React.createElement('span', { className: 'text-[var(--text-nav-hover)] font-semibold' }, 'IP Blocking'), ' — offending IPs are added to the firewall blocklist'),
+          React.createElement('li', null, React.createElement('span', { className: 'text-[var(--text-nav-hover)] font-semibold' }, 'Session Termination'), ' — suspicious TCP sessions are forcibly closed'),
+          React.createElement('li', null, React.createElement('span', { className: 'text-[var(--text-nav-hover)] font-semibold' }, 'Auto-Expiry'), ' — blocks expire automatically after 30 minutes by default'),
+          React.createElement('li', null, React.createElement('span', { className: 'text-[var(--text-nav-hover)] font-semibold' }, 'Audit Log'), ' — all actions are logged to ', React.createElement('code', { className: 'text-[var(--text-nav-hover)]' }, 'data/mitigation_log.csv')),
+        )
+      )
+    )
+  );
+}
+
+// ═══════════════════════════════════════════
 //  APP
 // ═══════════════════════════════════════════
 function App() {
@@ -1107,6 +1268,7 @@ function App() {
     mitm: MitmPage,
     capture: CapturePage,
     grafana: GrafanaPage,
+    mitigation: MitigationPage,
   };
 
   const Page = pages[page] || pages.overview;
